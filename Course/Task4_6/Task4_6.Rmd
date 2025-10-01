@@ -1,0 +1,109 @@
+---
+title: "Task4-6"
+author: ""
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    fig_width: 8
+    fig_height: 6
+    fig.fullwidth: yes
+    number_sections: yes
+date: "2025-10-01"
+link-citations: yes
+header-includes: /setcitestyle{numbers}
+mainfont: Arial
+---
+
+# Task4 
+## 1.What is the square root of 10?
+```{r}
+sqrt(10)
+```
+## 2.What is the logarithm of 32 to the base 2?
+```{r}
+log2(32)
+
+```
+## 3.What is the sum of the numbers from 1 to 1000?
+```{r}
+1000 * (1000 + 1) / 2
+
+```
+## 4.What is the sum of all even numbers from 2 to 1000?
+```{r}
+sum(seq(2, 1000, by = 2))
+
+```
+## 5.How many pairwise comparisons are there for 100 genes?
+```{r}
+choose(100, 2)
+```
+
+## 6.And how many ways to arrange 100 genes in triples?
+```{r}
+choose(100, 3)
+
+```
+
+# Task5
+## 2. Describe briefly the content of the CO2 dataset using the help function.
+```{r}
+data(CO2)
+cat("Task 5.2) Dataset description:\n")
+print(help(CO2))
+
+```
+The CO₂ uptake of twelve plants—six from Quebec and six from Mississippi—was measured at various ambient CO₂ concentrations. Before the experiment, half of the plants from each region were chilled overnight.
+
+## 3.What is the average and median CO2 uptake of the plants from Quebec and Mississippi?
+```{r}
+quebec <- subset(CO2, Type == "Quebec")$uptake
+mississippi <- subset(CO2, Type == "Mississippi")$uptake
+
+avg_quebec <- mean(quebec)
+med_quebec <- median(quebec)
+avg_mississippi <- mean(mississippi)
+med_mississippi <- median(mississippi)
+```
+Mississippi the average is 20.83, mean is 19.3
+Quebec the average is 33.5, mean is 37.15
+
+
+# Task 6
+## 1.Write a function that calculates the ratio of the mean and the median of a given vector.
+```{r}
+mean_median_ratio <- function(x) {
+  ratio <- mean(x) / median(x)
+  return(ratio)
+}
+test_vec <- c(1, 2, 3, 4, 100)
+cat("Task 6.1) mean/median ratio =", mean_median_ratio(test_vec), "\n")
+```
+## 2. Write a function that ignores the lowest and the highest value from a given vector and calculate the mean.
+```{r}
+trimmed_mean <- function(x) {
+  x_sorted <- sort(x)
+  x_trimmed <- x_sorted[-c(1, length(x_sorted))]
+  return(mean(x_trimmed))
+}
+cat("Task 6.2) trimmed mean =", trimmed_mean(test_vec), "\n")
+
+```
+
+## 3.Write a short (max. 300 characters, no spaces) explanation of why, how, and when not to use pipes.
+- Simple operations: For single functions like mean(x), pipes may be unnecessary.
+
+- Multiple inputs: Functions that need multiple data objects can be awkward with pipes, which pass only one object forward.
+
+- Non-linear workflows: If you need to reuse intermediate results or branch your analysis, storing variables is often clearer.
+
+- Debugging complex chains: Long pipe chains can be hard to debug; breaking them into steps with intermediate variables makes inspection easier.
+
+- Performance-critical code: Pipes add minimal overhead, but direct function calls may be slightly faster for intensive computations.
+
+- Team familiarity: Traditional R syntax is easier to understand for team members unfamiliar with pipes.
+
+## 4. Write a short explanation (max. 300 characters, no spaces) of why they could be useful in your work.
+The apply family of functions provides an efficient way to perform repeated operations without explicitly writing loops. They help simplify code, improve readability, and are often faster than traditional for loops. Their advantages include avoiding repetitive loop syntax, enhancing efficiency compared to manual loops, making code more concise, and reducing the risk of indexing errors.
+
