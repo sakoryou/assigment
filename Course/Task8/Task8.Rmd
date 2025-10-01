@@ -1,0 +1,196 @@
+---
+title: "Task8"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    fig_width: 8
+    fig_height: 6
+    fig.fullwidth: yes
+    number_sections: yes
+#bibliography: ref.bib
+link-citations: yes
+header-includes: /setcitestyle{numbers}
+mainfont: Arial
+---
+
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 150, fig.width = 7, fig.height = 4.5)
+
+req <- c("tidyverse", "janitor", "ggrepel")
+to_install <- setdiff(req, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
+library(tidyverse); library(janitor); library(ggrepel); library(patchwork)
+
+if (!requireNamespace("tidybiology", quietly = TRUE)) {
+  if (!requireNamespace("remotes", quietly = TRUE)) install.packages("remotes", repos = "https://cloud.r-project.org")
+  remotes::install_github("hirscheylab/tidybiology")
+}
+library(tidybiology)
+
+# ---- Compatibility helpers for axis SI labeling ----
+label_number_si_safe <- function(...) {
+  # Prefer the modern API: label_number(scale_cut = cut_si(""))
+  has_scale_cut_arg <- "scale_cut" %in% names(formals(scales::label_number))
+  has_cut_si        <- "cut_si" %in% ls(getNamespace("scales"))
+  if (has_scale_cut_arg && has_cut_si) {
+    return(scales::label_number(scale_cut = scales::cut_si(""), ...))
+  }
+  # Fall back to legacy label_number_si() if present
+  if ("label_number_si" %in% ls(getNamespace("scales"))) {
+    return(scales::label_number_si(...))
+  }
+  # Last resort: plain number with thousands separator
+  return(scales::label_number(big.mark = ",", ...))
+}
+
+scale_x_si <- function(...){
+  ggplot2::scale_x_continuous(labels = label_number_si_safe(), ...)
+}
+
+scale_y_si <- function(...){
+  ggplot2::scale_y_continuous(labels = label_number_si_safe(), ...)
+}
+```
+
+# Load datasets
+```{r load-data}
+data(chromosome, package = "tidybiology")
+data(proteins,   package = "tidybiology")
+
+chrom <- chromosome %>% janitor::clean_names()
+prot  <- proteins   %>% janitor::clean_names()
+
+glimpse(chrom); glimpse(prot)
+```
+
+## Helpers (robust column detection)
+```{r helpers}
+library(stringr)
+pick_first <- function(nms, pattern) {
+  ix <- which(str_detect(nms, regex(pattern, ignore_case = TRUE)))
+  if (length(ix) == 0) return(NA_character_)
+  nms[ix[1]]
+}
+nm_ch <- names(chrom)
+col_chr_id   <- pick_first(nm_ch, "^chr$|^chrom|^id$")
+col_length   <- pick_first(nm_ch, "length|size|basepairs|bp|mega|mb")
+col_variat   <- pick_first(nm_ch, "variat")
+col_pcgenes  <- pick_first(nm_ch, "protein.*coding|coding.*gene")
+col_mirnas   <- pick_first(nm_ch, "mirna|mi_?rna")
+
+nm_pr <- names(prot)
+col_plength <- pick_first(nm_pr, "length|len|aa|amino")
+col_pmass   <- pick_first(nm_pr, "mass|mw|kda|dalton|molecular_?weight")
+
+chrom_tidy <- chrom %>%
+  mutate(
+    chr_id  = if (!is.na(col_chr_id))   .data[[col_chr_id]]   else NA,
+    size_bp = if (!is.na(col_length))   .data[[col_length]]   else NA_real_,
+    var     = if (!is.na(col_variat))   .data[[col_variat]]   else NA_real_,
+    pcg     = if (!is.na(col_pcgenes))  .data[[col_pcgenes]]  else NA_real_,
+    mirna   = if (!is.na(col_mirnas))   .data[[col_mirnas]]   else NA_real_
+  ) %>% select(chr_id, size_bp, var, pcg, mirna)
+
+proteins_tidy <- prot %>%
+  transmute(
+    length = if (!is.na(col_plength)) .data[[col_plength]] else NA_real_,
+    mass   = if (!is.na(col_pmass))   .data[[col_pmass]]   else NA_real_
+  )
+```
+
+# A) Chromosome data
+
+## A-a) Summary stats
+```{r chrom-summaries}
+chrom_summary <- chrom_tidy %>%
+  summarise(
+    across(c(var, pcg, mirna),
+           list(mean = ~mean(.x, na.rm = TRUE),
+                median = ~median(.x, na.rm = TRUE),
+                max = ~max(.x, na.rm = TRUE)),
+           .names = "{.col}_{.fn}")
+  ) %>%
+  pivot_longer(everything(),
+               names_to = c("variable", ".value"),
+               names_sep = "_")
+chrom_summary
+```
+
+## A-b) Chromosome size distribution
+```{r chrom-size-dist, fig.height=5}
+p_chr_hist <- ggplot(chrom_tidy, aes(x = size_bp)) +
+  geom_histogram(bins = 20, color = "white") +
+  geom_rug(alpha = 0.4) +
+  labs(title = "Distribution of chromosome size",
+       x = "Chromosome size (bp)", y = "Count") +
+  scale_x_si()
+p_chr_hist
+```
+
+## A-c) Correlation with chromosome length
+```{r chrom-cor-plots, fig.height=5.4}
+cor_lbl <- function(x, y) {
+  ok <- complete.cases(x, y)
+  r  <- suppressWarnings(cor(x[ok], y[ok], method = "pearson"))
+  paste0("r = ", round(r, 3))
+}
+
+p_pcg <- ggplot(chrom_tidy, aes(x = size_bp, y = pcg)) +
+  geom_point(size = 2.2, alpha = 0.9) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7) +
+  annotate("text", x = Inf, y = Inf, label = cor_lbl(chrom_tidy$size_bp, chrom_tidy$pcg),
+           hjust = 1.1, vjust = 1.5) +
+  labs(title = "Protein coding genes vs chromosome length",
+       x = "Chromosome length (bp)", y = "Protein coding genes") +
+  scale_x_si() +
+  theme_minimal()
+
+p_mir <- ggplot(chrom_tidy, aes(x = size_bp, y = mirna)) +
+  geom_point(size = 2.2, alpha = 0.9, color = "#2C7FB8") +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7, color = "#253494") +
+  annotate("text", x = Inf, y = Inf, label = cor_lbl(chrom_tidy$size_bp, chrom_tidy$mirna),
+           hjust = 1.1, vjust = 1.5) +
+  labs(title = "miRNAs vs chromosome length",
+       x = "Chromosome length (bp)", y = "miRNAs") +
+  scale_x_si() +
+  theme_minimal()
+
+patchwork::wrap_plots(p_pcg, p_mir, ncol = 1)
+```
+
+# B) Proteins data
+
+## B-d) Summary stats & visualization
+```{r protein-summaries}
+proteins_summary <- proteins_tidy %>%
+  summarise(
+    across(c(length, mass),
+           list(mean = ~mean(.x, na.rm = TRUE),
+                median = ~median(.x, na.rm = TRUE),
+                max = ~max(.x, na.rm = TRUE)),
+           .names = "{.col}_{.fn}")
+  ) %>%
+  pivot_longer(everything(),
+               names_to = c("variable", ".value"),
+               names_sep = "_")
+proteins_summary
+```
+
+```{r protein-scatter, fig.height=5.4}
+p_prot <- ggplot(proteins_tidy, aes(x = length, y = mass)) +
+  geom_point(alpha = 0.7, size = 2.2, color = "#1b9e77") +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 0.7, color = "#d95f02") +
+  labs(title = "Protein mass vs length",
+       subtitle = "Consider log scales if heavy-tailed",
+       x = "Length (aa)", y = "Mass (Da or kDa)") +
+  theme_minimal(base_size = 12) +
+  theme(panel.grid.minor = element_blank())
+p_prot
+```
+
+## Session info
+```{r session}
+sessionInfo()
+```
