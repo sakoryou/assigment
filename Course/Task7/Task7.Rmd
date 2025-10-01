@@ -1,0 +1,168 @@
+---
+title: "Task7"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+    fig_width: 8
+    fig_height: 6
+    fig.fullwidth: yes
+    number_sections: yes
+#bibliography: ref.bib
+link-citations: yes
+header-includes: /setcitestyle{numbers}
+mainfont: Arial
+---
+
+# Compare the distributions of the body heights of the two species from the 'magic_guys.csv' dataset graphically 
+
+```{r setup, message=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE, dpi = 150, fig.width = 7, fig.height = 4.5)
+req <- c("tidyverse", "patchwork", "svglite")
+to_install <- setdiff(req, rownames(installed.packages()))
+if (length(to_install)) install.packages(to_install, repos = "https://cloud.r-project.org")
+library(tidyverse); library(patchwork)
+```
+
+
+```{r load-magic, message=FALSE}
+magic_path <- if (file.exists("magic_guys.csv")) "magic_guys.csv" else file.path("data", "magic_guys.csv")
+magic <- readr::read_csv(magic_path, show_col_types = FALSE) %>%
+  rename(height = length) %>% mutate(species = as.factor(species))
+summary(magic$height); table(magic$species)
+```
+
+## 1a. Histograms (base R and ggplot2)
+
+### Base R `hist` (robust breaks)
+```{r base-hist, fig.height=5}
+levs <- levels(magic$species)
+h_jedi <- magic$height[magic$species == levs[1]]
+h_sith <- magic$height[magic$species == levs[2]]
+
+# Safe breaks helper
+rng <- range(magic$height, na.rm = TRUE)
+rng_ext <- extendrange(rng, f = 0.001)
+br_fixed <- seq(floor(rng_ext[1]), ceiling(rng_ext[2]), by = 10)
+if (max(br_fixed) <= max(rng_ext)) br_fixed <- c(br_fixed, max(br_fixed) + 10)
+
+breaks_list <- list("Sturges"="Sturges", "FD"="FD", "Scott"="Scott", "Fixed10(safe)"=br_fixed)
+
+par(mfrow = c(2,2), mar = c(4,4,2,1))
+for (nm in names(breaks_list)) {
+  br <- breaks_list[[nm]]
+  h1 <- hist(h_jedi, breaks = br, plot = FALSE, include.lowest = TRUE, right = TRUE)
+  h2 <- hist(h_sith, breaks = br, plot = FALSE, include.lowest = TRUE, right = TRUE)
+  ylim <- range(0, h1$counts, h2$counts)
+  plot(h1, col = rgb(0.2,0.4,0.7,0.5), main = paste("Base hist —", nm), xlab = "Height", ylim = ylim)
+  plot(h2, col = rgb(0.9,0.3,0.3,0.5), add = TRUE)
+  legend("topright", bty = "n", fill = c(rgb(0.2,0.4,0.7,0.5), rgb(0.9,0.3,0.3,0.5)), legend = levs)
+}
+par(mfrow = c(1,1))
+```
+
+### ggplot2 `geom_histogram`
+```{r gg-histograms, fig.height=5.5}
+p_overlay <- ggplot(magic, aes(x = height, fill = species)) +
+  geom_histogram(aes(y = after_stat(..density..)), bins = 20, alpha = 0.5, position = "identity") +
+  geom_density(alpha = 0.2) +
+  labs(title = "Height distributions (overlay)", x = "Height", y = "Density") +
+  theme_minimal()
+
+p_facet <- ggplot(magic, aes(x = height, fill = species)) +
+  geom_histogram(bins = 30, alpha = 0.8, show.legend = FALSE) +
+  facet_wrap(~ species, nrow = 2, scales = "free_y") +
+  labs(title = "Height distributions (faceted)", x = "Height", y = "Count") +
+  theme_minimal()
+
+p_breaks <- ggplot(magic, aes(x = height, fill = species)) +
+  geom_histogram(breaks = seq(floor(min(magic$height)), ceiling(max(magic$height)) + 1, by = 5),
+                 color = "white", alpha = 0.9, show.legend = TRUE) +
+  labs(title = "Height distributions (5-unit breaks)", x = "Height", y = "Count") +
+  theme_minimal()
+
+(p_overlay / p_facet) | p_breaks
+```
+
+## 1b. Boxplots
+```{r boxplots}
+bp <- ggplot(magic, aes(x = species, y = height, fill = species)) +
+  geom_boxplot(width = 0.6, outlier.alpha = 0.6) + coord_flip() +
+  labs(title = "Height comparison by species — boxplot", x = NULL, y = "Height") +
+  theme_minimal() + theme(legend.position = "none")
+bp
+```
+
+## 1c. Save plots (PNG, PDF, SVG)
+```{r save-plots, message=FALSE}
+dir.create("plots", showWarnings = FALSE)
+ggsave("plots/heights_overlay.png", plot = p_overlay, width = 8, height = 5, dpi = 300)
+ggsave("plots/heights_overlay.pdf", plot = p_overlay, width = 8, height = 5, device = cairo_pdf)
+ggsave("plots/heights_overlay.svg", plot = p_overlay, width = 8, height = 5, device = "svg")
+ggsave("plots/heights_boxplot.png", plot = bp, width = 6, height = 4, dpi = 300)
+ggsave("plots/heights_boxplot.pdf", plot = bp, width = 6, height = 4, device = cairo_pdf)
+ggsave("plots/heights_boxplot.svg", plot = bp, width = 6, height = 4, device = "svg")
+```
+
+# 2. Load the gene expression data matrix from the ‘microarray_data.tab’ dataset provided in the shared folder, it is a big tabular separated matrix.  
+
+## a. How big is the matrix in terms of rows and columns?  
+```{r load-micro, message=FALSE}
+micro_path <- if (file.exists("microarray_data.tab")) "microarray_data.tab" else file.path("data", "microarray_data.tab")
+expr <- readr::read_tsv(micro_path, progress = FALSE, show_col_types = FALSE)
+n_samples <- nrow(expr); n_genes <- ncol(expr)
+tibble(rows = n_samples, columns = n_genes)
+```
+
+## b. Count the missing values per gene and visualize this result. 
+```{r miss, fig.height=5}
+miss_counts <- colSums(is.na(expr)); miss_pct <- 100 * miss_counts / nrow(expr)
+miss_df <- tibble(gene = names(miss_counts), missing = as.integer(miss_counts), pct = miss_pct)
+
+p_miss_hist <- ggplot(miss_df, aes(x = pct)) + geom_histogram(bins = 40) +
+  labs(title = "% missing per gene", x = "Missing (%)", y = "Genes") + theme_minimal()
+top30 <- miss_df %>% arrange(desc(missing)) %>% slice(1:30)
+p_miss_bar <- ggplot(top30, aes(x = reorder(gene, missing), y = missing)) + geom_col() + coord_flip() +
+  labs(title = "Top 30 genes by missing", x = "Gene", y = "Missing") + theme_minimal()
+p_miss_hist | p_miss_bar
+```
+
+
+## c. Find the genes for which there are more than X% (X=10%, 20%, 50%) missing values. 
+```{r thresholds}
+X <- c(10, 20, 50)
+genes_over_X <- lapply(X, function(x) miss_df %>% filter(pct > x) %>% pull(gene))
+names(genes_over_X) <- paste0(">", X, "%")
+lapply(genes_over_X, length)
+lapply(genes_over_X, head)
+```
+
+
+## d. Replace the missing values by the average expression value for the particular gene. (Note: Imputing data has to be used with caution!)  
+```{r impute}
+expr_imputed <- expr %>% mutate(across(everything(), ~ ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x)))
+sum(is.na(expr_imputed))
+```
+
+# 3. Visualize the data in the CO2 dataset in a way that gives you a deeper understanding of the data. What do you see? 
+```{r co2, message=FALSE}
+data(CO2, package = "datasets"); glimpse(CO2)
+p_scatter <- ggplot(CO2, aes(x = conc, y = uptake, color = Type, shape = Treatment)) +
+  geom_point(alpha = 0.8) + geom_smooth(se = FALSE, method = "loess") +
+  theme_minimal() + labs(title = "Uptake vs CO2 concentration", x = "CO2 conc", y = "Uptake")
+p_scatter
+```
+
+```{r co2-facets, fig.height=5.8}
+p_facets <- ggplot(CO2, aes(conc, uptake, group = Plant, color = Plant)) +
+  geom_line(alpha = 0.7) + facet_grid(Type ~ Treatment) + theme_minimal() +
+  theme(legend.position = "none") + labs(title = "Plant-specific curves", x = "CO2 conc", y = "Uptake")
+p_facets
+```
+
+```{r co2-box}
+ggplot(CO2, aes(x = interaction(Type, Treatment), y = uptake)) +
+  geom_violin(trim = FALSE, fill = 'grey85', color = 'grey40') +
+  geom_boxplot(width = 0.2, outlier.alpha = 0.5) +
+  theme_minimal() + labs(title = "Distributions by Type×Treatment", x = "Type.Treatment", y = "Uptake")
+```
